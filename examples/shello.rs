@@ -1,7 +1,7 @@
 use glazier::kurbo::Size;
 use glazier::{
     Application, Cursor, FileDialogToken, FileInfo, IdleToken, KeyEvent, Modifiers, MouseEvent,
-    Region, Scalable, TimerToken, WinHandler, WindowHandle,
+    PointerEvent, Region, Scalable, TimerToken, WinHandler, WindowHandle,
 };
 use keyboard_types::{Code, KeyState};
 use parley::{FontContext, Layout};
@@ -202,7 +202,7 @@ impl WinHandler for WindowState {
         println!("keyup: {event:?}");
     }
 
-    fn wheel(&mut self, event: &MouseEvent) {
+    fn wheel(&mut self, event: &PointerEvent) {
         println!("mouse_wheel {event:?}");
     }
 
