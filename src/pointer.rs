@@ -50,18 +50,18 @@ impl PenInclination {
         })
     }
 
-    fn spherical_to_tilt(altitude_angle: f64, azimuth_angle: f64) -> PenInclinationTilt {
+    pub fn tilt(&self) -> PenInclinationTilt {
         use std::f64::consts::PI;
         let rad_to_deg = 180.0 / PI;
         let deg_to_rad = PI / 180.0;
 
         // Tilts are not capable of representing angles close to the horizon, so avoid numerical
         // issues by thresholding the altidue away from the horizon.
-        let altitude_angle = altitude_angle.max(0.5 * deg_to_rad);
+        let altitude_angle = self.altitude_angle.max(0.5 * deg_to_rad);
 
         let tan_alt = altitude_angle.tan();
-        let tilt_x_rad = f64::atan2(f64::cos(azimuth_angle), tan_alt);
-        let tilt_y_rad = f64::atan2(f64::sin(azimuth_angle), tan_alt);
+        let tilt_x_rad = f64::atan2(f64::cos(self.azimuth_angle), tan_alt);
+        let tilt_y_rad = f64::atan2(f64::sin(self.azimuth_angle), tan_alt);
 
         PenInclinationTilt {
             tilt_x: f64::round(tilt_x_rad * rad_to_deg) as i8,
@@ -373,5 +373,20 @@ impl PointerEvent {
 
     pub fn is_pen(&self) -> bool {
         matches!(self.pointer_type, PointerType::Pen(_))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tilt_round_trip() {
+        for x in -89..=89 {
+            for y in -89..=89 {
+                let result = PenInclination::from_tilt(x, y).unwrap().tilt();
+                assert_eq!((x, y), (result.tilt_x, result.tilt_y));
+            }
+        }
     }
 }
