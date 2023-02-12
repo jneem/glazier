@@ -795,9 +795,10 @@ fn pointer_event(
                         PointerType::Pen(PenInfo {
                             pressure,
                             inclination: PenInclination::from_tilt(
-                                (tilt.x * 90.0) as i32,
-                                (tilt.y * 90.0) as i32,
-                            ),
+                                (tilt.x * 90.0) as i8,
+                                (tilt.y * 90.0) as i8,
+                            )
+                            .expect("invalid tilt"),
                             tangential_pressure,
                             twist: rotation as u16,
                         })

@@ -66,7 +66,8 @@ use crate::error::Error as ShellError;
 use crate::keyboard::{KbKey, KeyState};
 use crate::mouse::{Cursor, CursorDesc, MouseButton, MouseButtons, MouseEvent};
 use crate::pointer::{
-    MouseInfo, PenInfo, PointerButton, PointerButtons, PointerEvent, PointerType, TouchInfo,
+    MouseInfo, PenInclination, PenInfo, PointerButton, PointerButtons, PointerEvent, PointerType,
+    TouchInfo,
 };
 use crate::region::Region;
 use crate::scale::{Scalable, Scale, ScaledArea};
@@ -1212,14 +1213,15 @@ impl WndProc for MyWndProc {
                             debug_assert!(count <= 5);
                             for i in (0..(count as usize).min(5)).rev() {
                                 let info = info[i];
-                                let (altitude_angle, azimuth_angle) =
-                                    PenInfo::tilt_to_spherical(info.tiltX, info.tiltY);
                                 let pointer_type = PointerType::Pen(PenInfo {
                                     pressure: info.pressure as f32 / 1024.0, // normalise to 0.0..1.0
                                     tangential_pressure: 0.0, // Not available on windows
                                     twist: info.rotation as u16, // Clockwise rotation 0..359, no translation needed.
-                                    azimuth_angle,
-                                    altitude_angle,
+                                    inclination: PenInclination::from_tilt(
+                                        info.tiltX as i8,
+                                        info.tiltY as i8,
+                                    )
+                                    .expect("invalid tilt"),
                                 });
                                 if !dispatch_pointer_event(
                                     hwnd,

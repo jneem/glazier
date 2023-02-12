@@ -1,21 +1,19 @@
 use crate::kurbo::{Point, Size, Vec2};
 use crate::Modifiers;
-use std::time::Instant;
+
+// NOTE: We store pen inclination as azimuth/altitude even though some platforms use the tilt x/y representation.
+// There is a small conversion cost, but azimuth/altitude is more accurate for large tilts so it's the better
+// base representation.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PenInclinationAzimuthAltitude {
-    pub azimuth_angle: f32,
-    pub altitude_angle: f32,
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct PenInclinationTilt {
-    pub tilt_x: i32,
-    pub tilt_y: i32,
+pub struct PenInclination {
+    pub azimuth_angle: f64,
+    pub altitude_angle: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PenInclination {
-    Tilt(i32, i32),            // tiltX, tiltY in degrees -90..90
-    AzimuthAltitude(f32, f32), // Azimuth angle, altitude angle in radians
+pub struct PenInclinationTilt {
+    pub tilt_x: i8,
+    pub tilt_y: i8,
 }
 
 impl PenInclination {
@@ -24,136 +22,50 @@ impl PenInclination {
     //  Functions are taken from:
     //  https://www.w3.org/TR/pointerevents3/#converting-between-tiltx-tilty-and-altitudeangle-azimuthangle
 
-    pub fn from_tilt(tilt_x: i32, tilt_y: i32) -> PenInclination {
-        PenInclination::Tilt(tilt_x, tilt_y)
-    }
-    pub fn from_angle(azimuth_angle: f32, altitude_angle: f32) -> PenInclination {
-        PenInclination::AzimuthAltitude(azimuth_angle, altitude_angle)
-    }
+    pub fn from_tilt(tilt_x: i8, tilt_y: i8) -> Option<PenInclination> {
+        use std::f64::consts::{PI, TAU};
+        let tilt_x_rad = tilt_x as f64 * PI / 180.0;
+        let tilt_y_rad = tilt_y as f64 * PI / 180.0;
 
-    pub fn tilt(&self) -> PenInclinationTilt {
-        match *self {
-            PenInclination::Tilt(tilt_x, tilt_y) => PenInclinationTilt { tilt_x, tilt_y },
-            PenInclination::AzimuthAltitude(azimuth_angle, altitude_angle) => {
-                PenInclination::spherical_to_tilt(azimuth_angle, altitude_angle)
-            }
+        if tilt_x.abs() == 90 || tilt_y.abs() == 90 {
+            // The tilt representation breaks down at the horizon, so the position
+            // is undefined.
+            return None;
         }
-    }
-
-    pub fn azimuth_altitude(&self) -> PenInclinationAzimuthAltitude {
-        match *self {
-            PenInclination::Tilt(tilt_x, tilt_y) => {
-                PenInclination::tilt_to_spherical(tilt_x, tilt_y)
-            }
-            PenInclination::AzimuthAltitude(azimuth_angle, altitude_angle) => {
-                PenInclinationAzimuthAltitude {
-                    azimuth_angle,
-                    altitude_angle,
-                }
-            }
-        }
-    }
-
-    fn tilt_to_spherical(tilt_x: i32, tilt_y: i32) -> PenInclinationAzimuthAltitude {
-        use std::f32::consts::{PI, TAU};
-        let tilt_x_rad = tilt_x as f32 * PI / 180.0;
-        let tilt_y_rad = tilt_y as f32 * PI / 180.0;
 
         // calculate azimuth angle
-        let mut azimuth_angle = 0.0;
+        let tan_x = tilt_x_rad.tan();
+        let tan_y = tilt_y_rad.tan();
 
-        if tilt_x == 0 {
-            if tilt_y > 0 {
-                azimuth_angle = PI / 2.0;
-            } else if tilt_y < 0 {
-                azimuth_angle = 3.0 * PI / 2.0;
-            }
-        } else if tilt_y == 0 {
-            if tilt_x < 0 {
-                azimuth_angle = PI;
-            }
-        } else if tilt_x.abs() == 90 || tilt_y.abs() == 90 {
-            // not enough information to calculate azimuth
-            azimuth_angle = 0.0;
-        } else {
-            // Non-boundary case: neither tiltX nor tiltY is equal to 0 or +-90
-            let tan_x = tilt_x_rad.tan();
-            let tan_y = tilt_x_rad.tan();
-
-            azimuth_angle = f32::atan2(tan_y, tan_x);
-            if azimuth_angle < 0.0 {
-                azimuth_angle += TAU;
-            }
+        let mut azimuth_angle = f64::atan2(tan_y, tan_x);
+        if azimuth_angle < 0.0 {
+            azimuth_angle += TAU;
         }
 
         // calculate altitude angle
-        let altitude_angle = if tilt_x.abs() == 90 || tilt_y.abs() == 90 {
-            0.0
-        } else if tilt_x == 0 {
-            PI / 2.0 - tilt_y_rad.abs()
-        } else if tilt_y == 0 {
-            PI / 2.0 - tilt_x_rad.abs()
-        } else {
-            // Non-boundary case: neither tiltX nor tiltY is equal to 0 or +-90
-            let tan_x = tilt_x_rad.tan();
-            let tan_y = tilt_x_rad.tan();
-            f32::atan(1.0 / (tan_x * tan_x + tan_y * tan_y).sqrt())
-        };
-        PenInclinationAzimuthAltitude {
+        let altitude_angle = f64::atan(1.0 / (tan_x * tan_x + tan_y * tan_y).sqrt());
+        Some(PenInclination {
             altitude_angle,
             azimuth_angle,
-        }
+        })
     }
 
-    fn spherical_to_tilt(altitude_angle: f32, azimuth_angle: f32) -> PenInclinationTilt {
-        use std::f32::consts::{PI, TAU};
+    fn spherical_to_tilt(altitude_angle: f64, azimuth_angle: f64) -> PenInclinationTilt {
+        use std::f64::consts::PI;
         let rad_to_deg = 180.0 / PI;
-        let mut tilt_y_rad = 0.0;
-        let mut tilt_x_rad = 0.0;
-        if altitude_angle == 0.0 {
-            // the pen is in the X-Y plane
-            if azimuth_angle == 0.0 || azimuth_angle == TAU {
-                // pen is on positive X axis
-                tilt_x_rad = PI / 2.0;
-            }
-            if azimuth_angle == PI / 2.0 {
-                // pen is on positive Y axis
-                tilt_y_rad = PI / 2.0;
-            }
-            if azimuth_angle == PI {
-                // pen is on negative X axis
-                tilt_x_rad = -PI / 2.0;
-            }
-            if azimuth_angle == 3.0 * PI / 2.0 {
-                // pen is on negative Y axis
-                tilt_y_rad = -PI / 2.0;
-            }
-            if azimuth_angle > 0.0 && azimuth_angle < PI / 2.0 {
-                tilt_x_rad = PI / 2.0;
-                tilt_y_rad = PI / 2.0;
-            }
-            if azimuth_angle > PI / 2.0 && azimuth_angle < PI {
-                tilt_x_rad = -PI / 2.0;
-                tilt_y_rad = PI / 2.0;
-            }
-            if azimuth_angle > PI && azimuth_angle < 3.0 * PI / 2.0 {
-                tilt_x_rad = -PI / 2.0;
-                tilt_y_rad = -PI / 2.0;
-            }
-            if azimuth_angle > 3.0 * PI / 2.0 && azimuth_angle < TAU {
-                tilt_x_rad = PI / 2.0;
-                tilt_y_rad = -PI / 2.0;
-            }
-        };
+        let deg_to_rad = PI / 180.0;
 
-        if altitude_angle != 0.0 {
-            let tan_alt = altitude_angle.tan();
-            tilt_x_rad = f32::atan(f32::cos(azimuth_angle) / tan_alt);
-            tilt_y_rad = f32::atan(f32::sin(azimuth_angle) / tan_alt);
-        }
+        // Tilts are not capable of representing angles close to the horizon, so avoid numerical
+        // issues by thresholding the altidue away from the horizon.
+        let altitude_angle = altitude_angle.max(0.5 * deg_to_rad);
+
+        let tan_alt = altitude_angle.tan();
+        let tilt_x_rad = f64::atan2(f64::cos(azimuth_angle), tan_alt);
+        let tilt_y_rad = f64::atan2(f64::sin(azimuth_angle), tan_alt);
+
         PenInclinationTilt {
-            tilt_x: f32::round(tilt_x_rad * rad_to_deg) as i32,
-            tilt_y: f32::round(tilt_y_rad * rad_to_deg) as i32,
+            tilt_x: f64::round(tilt_x_rad * rad_to_deg) as i8,
+            tilt_y: f64::round(tilt_y_rad * rad_to_deg) as i8,
         }
     }
 }
@@ -186,7 +98,10 @@ impl Default for PenInfo {
             pressure: 0.5, // In the range zero to one, must be 0.5 when in active buttons state for hardware that doesn't support pressure, and 0 otherwise
             tangential_pressure: 0.0,
             twist: 0,
-            inclination: PenInclination::from_angle(0.0, std::f32::consts::PI / 2.0),
+            inclination: PenInclination {
+                altitude_angle: std::f64::consts::PI / 2.0,
+                azimuth_angle: 0.0,
+            },
         }
     }
 }
@@ -204,6 +119,7 @@ impl Default for TouchInfo {
 pub enum PointerType {
     Mouse(MouseInfo),
     Pen(PenInfo),
+    Eraser(PenInfo),
     Touch(TouchInfo),
     // Apple has force touch devices that provide pressure info, but nothing further.
     // Assume that that may become more of a thing in the future?
@@ -226,8 +142,6 @@ pub enum PointerButton {
     X1,
     /// X2 (forward) Mouse.
     X2,
-    /// Pen eraser button
-    Eraser,
 }
 
 impl PointerButton {
@@ -269,14 +183,6 @@ impl PointerButton {
     #[inline]
     pub fn is_x2(self) -> bool {
         self == PointerButton::X2
-    }
-
-    /// Returns `true` if this is [`PointerButton::Eraser`].
-    ///
-    /// [`PointerButton::Eraser`]: #variant.X2
-    #[inline]
-    pub fn is_eraser(self) -> bool {
-        self == PointerButton::Eraser
     }
 }
 
@@ -377,14 +283,6 @@ impl PointerButtons {
         self.contains(PointerButton::X2)
     }
 
-    /// Returns `true` if [`PointerButton::Eraser`] is in the set.
-    ///
-    /// [`PointerButton::Eraser`]: enum.PointerButton.html#variant.Eraser
-    #[inline]
-    pub fn has_eraser(self) -> bool {
-        self.contains(PointerButton::Eraser)
-    }
-
     /// Adds all the `buttons` to the set.
     pub fn extend(&mut self, buttons: PointerButtons) {
         self.0 |= buttons.0;
@@ -465,15 +363,15 @@ impl Default for PointerEvent {
 impl PointerEvent {
     // TODO - lots of helper functions - is_hovering?
 
-    pub fn is_touch() -> bool {
-        todo!();
+    pub fn is_touch(&self) -> bool {
+        matches!(self.pointer_type, PointerType::Touch(_))
     }
 
-    pub fn is_mouse() -> bool {
-        todo!();
+    pub fn is_mouse(&self) -> bool {
+        matches!(self.pointer_type, PointerType::Mouse(_))
     }
 
-    pub fn is_pen() -> bool {
-        todo!();
+    pub fn is_pen(&self) -> bool {
+        matches!(self.pointer_type, PointerType::Pen(_))
     }
 }
