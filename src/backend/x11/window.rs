@@ -23,6 +23,7 @@ use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use crate::pointer::{MouseInfo, PointerType};
 use crate::scale::Scalable;
 use anyhow::{anyhow, Context, Error};
 use tracing::{error, warn};
@@ -50,14 +51,14 @@ use crate::dialog::FileDialogOptions;
 use crate::error::Error as ShellError;
 use crate::keyboard::{KeyState, Modifiers};
 use crate::kurbo::{Insets, Point, Rect, Size, Vec2};
-use crate::mouse::{Cursor, CursorDesc, MouseButton, MouseButtons, MouseEvent};
+use crate::mouse::{Cursor, CursorDesc};
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::text::{simulate_input, Event};
 use crate::window::{
     FileDialogToken, IdleToken, TextFieldToken, TimerToken, WinHandler, WindowLevel,
 };
-use crate::{window, KeyEvent, ScaledArea};
+use crate::{window, KeyEvent, PointerButton, PointerButtons, PointerEvent, ScaledArea};
 
 use super::application::Application;
 use super::dialog;
@@ -785,7 +786,7 @@ impl Window {
         });
     }
 
-    fn mouse_event(&self, ev: &xinput::ButtonPressEvent) -> MouseEvent {
+    fn pointer_event(&self, ev: &xinput::ButtonPressEvent) -> PointerEvent {
         // In x11rb these are i32's but in the protocol they're fixed-precision FP1616s
         // https://github.com/psychon/x11rb/blob/dacfba5e2a8eef4b80df75d9bec9061c3d98d279/xcb-proto-1.15.2/src/xinput.xml#L2374
         let (ev_x, ev_y) = (ev.event_x as f64 / 65536.0, ev.event_y as f64 / 65536.0);
@@ -793,46 +794,51 @@ impl Window {
         let mods = ev.mods.base | ev.mods.locked | ev.mods.latched;
         // TODO: what are the high 16 bits for? Maybe virtual modifiers?
         let mods = (mods as u16).into();
-        let button = mouse_button(ev.detail);
+        let button = pointer_button(ev.detail);
 
-        MouseEvent {
+        PointerEvent {
             pos: Point::new(ev_x, ev_y).to_dp(scale),
             // The xcb state field doesn't include the newly pressed button, but
             // druid wants it to be included.
-            buttons: mouse_buttons(mods),
-            mods: key_mods(mods),
+            buttons: pointer_buttons(mods),
+            modifiers: key_mods(mods),
             count: 0,
             focus: false,
             button,
-            wheel_delta: Vec2::ZERO,
+            pointer_id: 0,
+            is_primary: true,
+            pointer_type: PointerType::Mouse(MouseInfo {
+                wheel_delta: Vec2::ZERO,
+            }),
+            timestamp: 0, // TODO
         }
     }
 
     pub fn handle_button_press(&self, ev: &xinput::ButtonPressEvent) -> Result<(), Error> {
-        let mut mouse_ev = self.mouse_event(ev);
+        let mut mouse_ev = self.pointer_event(ev);
         // The xcb state field doesn't include the newly pressed button, but
         // druid wants it to be included.
         mouse_ev.buttons = mouse_ev.buttons.with(mouse_ev.button);
         // TODO: detect the count
         mouse_ev.count = 1;
-        self.with_handler(|h| h.mouse_down(&mouse_ev));
+        self.with_handler(|h| h.pointer_down(&mouse_ev));
         Ok(())
     }
 
     pub fn handle_button_release(&self, ev: &xinput::ButtonPressEvent) -> Result<(), Error> {
-        let mut mouse_ev = self.mouse_event(ev);
+        let mut mouse_ev = self.pointer_event(ev);
         // The xcb state includes the newly released button, but druid
         // doesn't want it.
         mouse_ev.buttons = mouse_ev.buttons.without(mouse_ev.button);
-        self.with_handler(|h| h.mouse_up(&mouse_ev));
+        self.with_handler(|h| h.pointer_up(&mouse_ev));
         Ok(())
     }
 
     pub fn handle_wheel(&self, ev: &xinput::ButtonPressEvent) -> Result<(), Error> {
-        let mut mouse_ev = self.mouse_event(ev);
+        let mut mouse_ev = self.pointer_event(ev);
 
         // We use a delta of 120 per tick to match the behavior of Windows.
-        let is_shift = mouse_ev.mods.shift();
+        let is_shift = mouse_ev.modifiers.shift();
         let delta = match ev.detail {
             4 if is_shift => (-120.0, 0.0),
             4 => (0.0, -120.0),
@@ -842,17 +848,19 @@ impl Window {
             7 => (120.0, 0.0),
             _ => return Err(anyhow!("unexpected mouse wheel button: {}", ev.detail)),
         };
-        mouse_ev.wheel_delta = delta.into();
-        mouse_ev.button = MouseButton::None;
+        mouse_ev.pointer_type = PointerType::Mouse(MouseInfo {
+            wheel_delta: delta.into(),
+        });
+        mouse_ev.button = PointerButton::None;
 
         self.with_handler(|h| h.wheel(&mouse_ev));
         Ok(())
     }
 
     pub fn handle_motion_notify(&self, ev: &xinput::ButtonPressEvent) -> Result<(), Error> {
-        let mut mouse_ev = self.mouse_event(ev);
-        mouse_ev.button = MouseButton::None;
-        self.with_handler(|h| h.mouse_move(&mouse_ev));
+        let mut mouse_ev = self.pointer_event(ev);
+        mouse_ev.button = PointerButton::None;
+        self.with_handler(|h| h.pointer_move(&mouse_ev));
         Ok(())
     }
 
@@ -860,7 +868,7 @@ impl Window {
         &self,
         _leave_notify: &xproto::LeaveNotifyEvent,
     ) -> Result<(), Error> {
-        self.with_handler(|h| h.mouse_leave());
+        self.with_handler(|h| h.pointer_leave(&PointerEvent::default()));
         Ok(())
     }
 
@@ -942,30 +950,30 @@ impl Window {
 }
 
 // Converts from, e.g., the `details` field of `xcb::xproto::ButtonPressEvent`
-fn mouse_button(button: u32) -> MouseButton {
+fn pointer_button(button: u32) -> PointerButton {
     match button {
-        1 => MouseButton::Left,
-        2 => MouseButton::Middle,
-        3 => MouseButton::Right,
+        1 => PointerButton::Left,
+        2 => PointerButton::Middle,
+        3 => PointerButton::Right,
         // buttons 4 through 7 are for scrolling.
-        4..=7 => MouseButton::None,
-        8 => MouseButton::X1,
-        9 => MouseButton::X2,
+        4..=7 => PointerButton::None,
+        8 => PointerButton::X1,
+        9 => PointerButton::X2,
         _ => {
             warn!("unknown mouse button code {}", button);
-            MouseButton::None
+            PointerButton::None
         }
     }
 }
 
 // Extracts the mouse buttons from, e.g., the `state` field of
 // `xcb::xproto::ButtonPressEvent`
-fn mouse_buttons(mods: KeyButMask) -> MouseButtons {
-    let mut buttons = MouseButtons::new();
+fn pointer_buttons(mods: KeyButMask) -> PointerButtons {
+    let mut buttons = PointerButtons::new();
     let button_masks = &[
-        (xproto::ButtonMask::M1, MouseButton::Left),
-        (xproto::ButtonMask::M2, MouseButton::Middle),
-        (xproto::ButtonMask::M3, MouseButton::Right),
+        (xproto::ButtonMask::M1, PointerButton::Left),
+        (xproto::ButtonMask::M2, PointerButton::Middle),
+        (xproto::ButtonMask::M3, PointerButton::Right),
         // TODO: determine the X1/X2 state, using our own caching if necessary.
         // BUTTON_MASK_4/5 do not work: they are for scroll events.
     ];
