@@ -15,7 +15,7 @@
 //! wayland platform support
 
 pub mod application;
-pub mod clipboard;
+//pub mod clipboard;
 mod display;
 pub mod error;
 mod events;
@@ -23,8 +23,8 @@ pub mod keyboard;
 pub mod menu;
 mod outputs;
 pub mod pointers;
-pub mod screen;
-pub mod surfaces;
+//pub mod screen;
+//pub mod surfaces;
 pub mod window;
 
 /// Little enum to make it clearer what some return values mean.

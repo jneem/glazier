@@ -9,7 +9,6 @@ use crate::KeyEvent;
 use crate::Modifiers;
 
 use super::application::Data;
-use super::surfaces::buffers;
 use crate::backend::shared::xkb;
 
 #[allow(unused)]
@@ -138,6 +137,7 @@ impl Keyboard {
                     panic!("only xkb keymap supported for now");
                 }
 
+                /*
                 // TODO to test memory ownership we copy the memory. That way we can deallocate it
                 // and see if we get a segfault.
                 let keymap_data = unsafe {
@@ -158,6 +158,8 @@ impl Keyboard {
 
                 self.xkb_keymap.replace(Some(keymap));
                 self.xkb_state.replace(Some(keymapstate));
+                */
+                todo!()
             }
             wl_keyboard::Event::Enter { .. } => {
                 self.focused(true);

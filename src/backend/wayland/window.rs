@@ -13,10 +13,10 @@
 
 #![allow(clippy::single_match)]
 
+use smithay_client_toolkit::reexports::protocols::xdg::shell::client::{
+    xdg_popup, xdg_positioner, xdg_surface,
+};
 use tracing;
-use wayland_protocols::xdg_shell::client::xdg_popup;
-use wayland_protocols::xdg_shell::client::xdg_positioner;
-use wayland_protocols::xdg_shell::client::xdg_surface;
 
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
@@ -24,7 +24,7 @@ use raw_window_handle::{
 };
 
 use super::application::{self, Timer};
-use super::{error::Error, menu::Menu, outputs, surfaces};
+use super::{error::Error, menu::Menu, outputs};
 
 use crate::{
     dialog::FileDialogOptions,

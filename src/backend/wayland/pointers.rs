@@ -1,7 +1,11 @@
+use smithay_client_toolkit::reexports::client::{
+    self as wl,
+    protocol::{
+        wl_pointer,
+        wl_surface::{self, WlSurface},
+    },
+};
 use std::collections::VecDeque;
-use wayland_client::protocol::wl_pointer;
-use wayland_client::protocol::wl_surface::{self, WlSurface};
-use wayland_client::{self as wl};
 use wayland_cursor::CursorImageBuffer;
 use wayland_cursor::CursorTheme;
 
@@ -83,7 +87,7 @@ impl ClickDebouncer {
 /// Collect up mouse events then emit them together on a pointer frame.
 pub(crate) struct Pointer {
     /// The image surface which contains the cursor image.
-    pub(crate) cursor_surface: wl::Main<WlSurface>,
+    pub(crate) cursor_surface: WlSurface,
     /// Events that have occurred since the last frame.
     pub(crate) queued_events: std::cell::RefCell<VecDeque<PointerEvent>>,
     /// Currently pressed buttons
@@ -131,7 +135,7 @@ pub(crate) enum MouseEvtKind {
 #[allow(unused)]
 impl Pointer {
     /// Create a new pointer
-    pub fn new(theme: CursorTheme, cursor: wl::Main<WlSurface>) -> Self {
+    pub fn new(theme: CursorTheme, cursor: WlSurface) -> Self {
         // ignore all events
         cursor.quick_assign(|a1, event, a2| {
             tracing::trace!("pointer surface event {:?} {:?} {:?}", a1, event, a2);
